@@ -128,7 +128,7 @@ jobs:
       - name: Build debug APK
         run: >
           ./gradlew assembleDebug
-          -PapiBaseUrl=${{ vars.API_BASE_URL || 'https://vpn-api.yourdomain.com' }}
+          -PapiBaseUrl=${{ vars.API_BASE_URL || 'https://admin.repairdock.online:9443' }}
           --no-daemon
 
       - name: Warn if API_BASE_URL was never set
