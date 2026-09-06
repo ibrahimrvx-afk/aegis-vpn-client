@@ -16,7 +16,7 @@ android {
 
         // Injected at build time so you never hardcode your backend URL in source.
         // Override with: ./gradlew assembleRelease -PapiBaseUrl=https://vpn-api.yourdomain.com
-        buildConfigField("String", "API_BASE_URL", "\"${project.findProperty("apiBaseUrl") ?: "https://vpn-api.yourdomain.com"}\"")
+        buildConfigField("String", "API_BASE_URL", "\"${project.findProperty("apiBaseUrl") ?: "https://admin.repairdock.online:9443"}\"")
     }
 
     buildFeatures {
