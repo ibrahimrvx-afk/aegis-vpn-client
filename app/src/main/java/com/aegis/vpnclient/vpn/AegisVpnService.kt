@@ -118,16 +118,16 @@ class AegisVpnService : VpnService(), CoreCallbackHandler {
         broadcastStatus("Connection lost — kill switch active")
     }
 
-    override fun startup(): Int = 0
+    override fun startup(): Long = 0L
 
-    override fun shutdown(): Int {
+    override fun shutdown(): Long {
         if (!userInitiatedDisconnect) handleUnexpectedCoreDrop()
-        return 0
+        return 0L
     }
 
-    override fun onEmitStatus(code: Int, message: String?): Int {
+    override fun onEmitStatus(code: Long, message: String?): Long {
         broadcastStatus(message ?: "status $code")
-        return 0
+        return 0L
     }
 
     private fun broadcastStatus(status: String) {

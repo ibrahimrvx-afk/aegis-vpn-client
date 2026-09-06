@@ -101,6 +101,13 @@ runners don't reliably have pre-installed. Fixed:
   foreground service.
 - Added a `.gitignore` (none existed, so `build/`, `.gradle/`, and
   `local.properties` would otherwise end up committed).
+- Fixed `AegisVpnService`'s `CoreCallbackHandler` overrides (`startup`,
+  `shutdown`, `onEmitStatus`) to return/accept `Long` instead of `Int`.
+  `gomobile`'s `gobind` always maps Go's platform-width `int` to Java/Kotlin
+  `long` (never `int`) so the API is identical on 32- and 64-bit targets —
+  see https://github.com/golang/go/issues/11421. The interface's `int32`
+  params (e.g. `CoreController.startLoop`'s `tunFd`) still map to Kotlin
+  `Int` and were already correct.
 
 Everything else — the login/signup flow, `XrayConfigBuilder`,
 `VerificationManager`, `AegisVpnService`'s kill-switch behavior — was
