@@ -13,10 +13,6 @@ on:
 jobs:
 
   # ── Job 1: build libv2ray.aar from AndroidLibXrayLite source ──────────
-  # This isn't on Maven Central, so we compile it fresh with Go + gomobile.
-  # Cached by commit SHA so repeat builds are fast after the first one —
-  # but ONLY cached after we've verified the AAR is actually valid, so a
-  # broken build can never poison the cache for future runs.
   build-xray-aar:
     runs-on: ubuntu-latest
     steps:
@@ -37,7 +33,7 @@ jobs:
         if: steps.cache-restore.outputs.cache-hit != 'true'
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.23'
 
       - name: Set up Android SDK + NDK
         if: steps.cache-restore.outputs.cache-hit != 'true'
@@ -63,30 +59,23 @@ jobs:
         working-directory: AndroidLibXrayLite
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
-        # Exact command from the upstream project's own README — do not
-        # add extra flags here on a guess. If this starts failing, check
-        # https://github.com/2dust/AndroidLibXrayLite for what changed.
         run: |
           gomobile init
           go mod tidy -v
-          gomobile bind -v -androidapi 21 -ldflags='-s -w' -o ../libv2ray.aar ./
+          gomobile bind -v -androidapi 21 -ldflags='-s -w -checklinkname=0' -o ../libv2ray.aar ./
 
-      # Catches a build that "succeeds" (exit code 0) but produces a
-      # useless AAR — e.g. wrong package bound, empty classes.jar. Fails
-      # the job HERE with a clear message instead of three jobs later as a
-      # baffling Kotlin "Unresolved reference" error.
       - name: Verify the AAR actually exports libv2ray classes
         if: steps.cache-restore.outputs.cache-hit != 'true'
         run: |
           test -s libv2ray.aar || { echo "::error::libv2ray.aar is missing or empty"; exit 1; }
           mkdir -p /tmp/aar-check && cd /tmp/aar-check
           unzip -o "$GITHUB_WORKSPACE/libv2ray.aar" classes.jar > /dev/null
-          unzip -l classes.jar | grep -q 'libv2ray/V2RayPoint.class' || {
-            echo "::error::Built libv2ray.aar does not contain libv2ray/V2RayPoint.class — the gomobile bind command likely needs updating to match a change upstream."
+          unzip -l classes.jar | grep -q 'libv2ray/CoreController.class' || {
+            echo "::error::Built libv2ray.aar does not contain libv2ray/CoreController.class — the gomobile bind command or the Kotlin code using it likely needs updating to match a change upstream."
             unzip -l classes.jar | head -30
             exit 1
           }
-          echo "AAR verified — libv2ray/V2RayPoint.class present."
+          echo "AAR verified — libv2ray/CoreController.class present."
 
       - name: Save libv2ray.aar to cache (only reached if verification passed)
         if: steps.cache-restore.outputs.cache-hit != 'true'
@@ -133,9 +122,6 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-        # No committed Gradle wrapper needed — setup-gradle provisions Gradle
-        # itself, so this works even though this repo doesn't ship a
-        # gradlew/gradle-wrapper.jar binary.
       - name: Build debug APK
         run: >
           gradle assembleDebug
@@ -153,9 +139,6 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 90
 
-      # ── Optional: attach the APK to a GitHub Release when you push a tag ──
-      # Push a tag like "v1.0.0" (git tag v1.0.0 && git push origin v1.0.0)
-      # and this creates a Release with the APK ready to download.
       - name: Create GitHub Release with APK
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
