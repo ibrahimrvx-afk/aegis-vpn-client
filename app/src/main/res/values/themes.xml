@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Aegis" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#4F8CFF</item>
+        <item name="colorPrimaryDark">#0F1115</item>
+        <item name="colorAccent">#4F8CFF</item>
+    </style>
+</resources>
