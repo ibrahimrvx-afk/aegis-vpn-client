@@ -37,10 +37,7 @@ jobs:
         if: steps.cache-restore.outputs.cache-hit != 'true'
         uses: actions/setup-go@v5
         with:
-          # Go's toolchain auto-upgrades to whatever AndroidLibXrayLite's
-          # go.mod requires anyway (observed: 1.24.x) regardless of this
-          # pin — this is just the baseline before that kicks in.
-          go-version: '1.23'
+          go-version: '1.22'
 
       - name: Set up Android SDK + NDK
         if: steps.cache-restore.outputs.cache-hit != 'true'
@@ -66,18 +63,13 @@ jobs:
         working-directory: AndroidLibXrayLite
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
-        # -checklinkname=0 is NOT optional here: a transitive dependency
-        # (github.com/wlynxg/anet, used for Android network interface
-        # access) uses //go:linkname against an unexported net.zoneCache
-        # symbol. Go restricted that from 1.23 onward, and Go's automatic
-        # toolchain upgrade (per go.mod's toolchain directive) will pull in
-        # 1.23+ regardless of the go-version pinned above — so this flag is
-        # required, not a guess. Confirmed against wlynxg/anet's own docs
-        # and multiple other projects hitting the identical link error.
+        # Exact command from the upstream project's own README — do not
+        # add extra flags here on a guess. If this starts failing, check
+        # https://github.com/2dust/AndroidLibXrayLite for what changed.
         run: |
           gomobile init
           go mod tidy -v
-          gomobile bind -v -androidapi 21 -ldflags='-s -w -checklinkname=0' -o ../libv2ray.aar ./
+          gomobile bind -v -androidapi 21 -ldflags='-s -w' -o ../libv2ray.aar ./
 
       # Catches a build that "succeeds" (exit code 0) but produces a
       # useless AAR — e.g. wrong package bound, empty classes.jar. Fails
