@@ -14,63 +14,86 @@ jobs:
 
   # ── Job 1: build libv2ray.aar from AndroidLibXrayLite source ──────────
   # This isn't on Maven Central, so we compile it fresh with Go + gomobile.
-  # Cached by commit SHA so repeat builds are fast after the first one.
+  # Cached by commit SHA so repeat builds are fast after the first one —
+  # but ONLY cached after we've verified the AAR is actually valid, so a
+  # broken build can never poison the cache for future runs.
   build-xray-aar:
     runs-on: ubuntu-latest
-    outputs:
-      cache-key: ${{ steps.vars.outputs.cache-key }}
     steps:
       - name: Get latest AndroidLibXrayLite commit SHA (for cache key)
         id: vars
         run: |
           SHA=$(git ls-remote https://github.com/2dust/AndroidLibXrayLite HEAD | cut -f1)
-          echo "cache-key=xray-aar-$SHA" >> "$GITHUB_OUTPUT"
+          echo "cache-key=xray-aar-v2-$SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Cache libv2ray.aar
-        id: cache-aar
-        uses: actions/cache@v4
+      - name: Restore cached libv2ray.aar
+        id: cache-restore
+        uses: actions/cache/restore@v4
         with:
           path: libv2ray.aar
           key: ${{ steps.vars.outputs.cache-key }}
 
       - name: Set up Go
-        if: steps.cache-aar.outputs.cache-hit != 'true'
+        if: steps.cache-restore.outputs.cache-hit != 'true'
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
       - name: Set up Android SDK + NDK
-        if: steps.cache-aar.outputs.cache-hit != 'true'
+        if: steps.cache-restore.outputs.cache-hit != 'true'
         uses: android-actions/setup-android@v3
 
       - name: Install NDK
-        if: steps.cache-aar.outputs.cache-hit != 'true'
+        if: steps.cache-restore.outputs.cache-hit != 'true'
         run: sdkmanager --install "ndk;26.1.10909125"
 
       - name: Install gomobile
-        if: steps.cache-aar.outputs.cache-hit != 'true'
+        if: steps.cache-restore.outputs.cache-hit != 'true'
         run: |
           go install golang.org/x/mobile/cmd/gomobile@latest
           go install golang.org/x/mobile/cmd/gobind@latest
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Clone AndroidLibXrayLite
-        if: steps.cache-aar.outputs.cache-hit != 'true'
+        if: steps.cache-restore.outputs.cache-hit != 'true'
         run: git clone --depth=1 https://github.com/2dust/AndroidLibXrayLite.git
 
       - name: Build libv2ray.aar
-        if: steps.cache-aar.outputs.cache-hit != 'true'
+        if: steps.cache-restore.outputs.cache-hit != 'true'
         working-directory: AndroidLibXrayLite
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/26.1.10909125
-        # Exact steps per the upstream project's own README/pkg.go.dev docs
-        # (checked at the time this workflow was written — if this step
-        # starts failing, check https://github.com/2dust/AndroidLibXrayLite
-        # for whether they've changed the recommended flags).
+        # Exact command from the upstream project's own README — do not
+        # add extra flags here on a guess. If this starts failing, check
+        # https://github.com/2dust/AndroidLibXrayLite for what changed.
         run: |
           gomobile init
           go mod tidy -v
-          gomobile bind -v -androidapi 24 -trimpath -ldflags='-s -w -buildid= -checklinkname=0' -o ../libv2ray.aar ./
+          gomobile bind -v -androidapi 21 -ldflags='-s -w' -o ../libv2ray.aar ./
+
+      # Catches a build that "succeeds" (exit code 0) but produces a
+      # useless AAR — e.g. wrong package bound, empty classes.jar. Fails
+      # the job HERE with a clear message instead of three jobs later as a
+      # baffling Kotlin "Unresolved reference" error.
+      - name: Verify the AAR actually exports libv2ray classes
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        run: |
+          test -s libv2ray.aar || { echo "::error::libv2ray.aar is missing or empty"; exit 1; }
+          mkdir -p /tmp/aar-check && cd /tmp/aar-check
+          unzip -o "$GITHUB_WORKSPACE/libv2ray.aar" classes.jar > /dev/null
+          unzip -l classes.jar | grep -q 'libv2ray/V2RayPoint.class' || {
+            echo "::error::Built libv2ray.aar does not contain libv2ray/V2RayPoint.class — the gomobile bind command likely needs updating to match a change upstream."
+            unzip -l classes.jar | head -30
+            exit 1
+          }
+          echo "AAR verified — libv2ray/V2RayPoint.class present."
+
+      - name: Save libv2ray.aar to cache (only reached if verification passed)
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: libv2ray.aar
+          key: ${{ steps.vars.outputs.cache-key }}
 
       - name: Upload libv2ray.aar artifact
         uses: actions/upload-artifact@v4
@@ -93,6 +116,11 @@ jobs:
           name: libv2ray-aar
           path: app/libs
 
+      - name: Verify the downloaded AAR before spending build minutes on it
+        run: |
+          test -s app/libs/libv2ray.aar || { echo "::error::app/libs/libv2ray.aar missing or empty after download"; exit 1; }
+          echo "Found app/libs/libv2ray.aar ($(du -h app/libs/libv2ray.aar | cut -f1))"
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -113,6 +141,10 @@ jobs:
           gradle assembleDebug
           -PapiBaseUrl=${{ vars.API_BASE_URL || 'https://vpn-api.yourdomain.com' }}
           --no-daemon
+
+      - name: Warn if API_BASE_URL was never set
+        if: vars.API_BASE_URL == ''
+        run: echo "::warning::API_BASE_URL repo variable is not set — this build points at the placeholder https://vpn-api.yourdomain.com, not your real backend. Set it under Settings > Secrets and variables > Actions > Variables."
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
