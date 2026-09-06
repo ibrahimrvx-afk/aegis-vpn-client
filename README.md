@@ -80,6 +80,34 @@ obvious gap.
 Placeholder vector icon included so the manifest resolves. Replace via
 Android Studio's Image Asset tool before release.
 
+## Fixed since the last version
+
+The project was missing its Gradle wrapper (`gradlew` / `gradlew.bat` /
+`gradle/wrapper/`), which is why both a local `./gradlew assembleRelease`
+and the `Build Android APK` GitHub Actions workflow failed — the workflow's
+"Build debug APK" step called a bare `gradle` command, which GitHub-hosted
+runners don't reliably have pre-installed. Fixed:
+
+- Added `gradlew`, `gradlew.bat`, and `gradle/wrapper/gradle-wrapper.{jar,properties}`,
+  pinned to Gradle 8.9 (checksum-verified against the official Gradle
+  distribution — satisfies AGP 8.6.0's minimum required Gradle version of 8.7).
+- Updated `.github/workflows/build-apk.yml` to run `./gradlew assembleDebug`
+  instead of the bare `gradle` command, and added a `chmod +x ./gradlew`
+  step so the wrapper stays executable even if that bit gets lost when the
+  repo is zipped/unzipped.
+- Added the `android:foregroundServiceType="specialUse"` service's required
+  `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` manifest `<property>` — Android 14+ and
+  Play Console review both expect a stated reason for a `specialUse`
+  foreground service.
+- Added a `.gitignore` (none existed, so `build/`, `.gradle/`, and
+  `local.properties` would otherwise end up committed).
+
+Everything else — the login/signup flow, `XrayConfigBuilder`,
+`VerificationManager`, `AegisVpnService`'s kill-switch behavior — was
+already correct Kotlin that matches the current (2026) AndroidLibXrayLite
+`libv2ray` API (`CoreController` / `CoreCallbackHandler`, verified against
+the published Go source), so it was left as-is.
+
 ## Build
 
 ```bash
