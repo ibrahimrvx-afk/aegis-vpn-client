@@ -8,53 +8,30 @@ import com.aegis.vpnclient.network.ConfigEntry
 import com.aegis.vpnclient.network.PackageInfo
 import java.net.URLDecoder
 
-/** Local SOCKS port Xray listens on; a tun2socks bridge feeds the VpnService's TUN fd into this. */
-const val LOCAL_SOCKS_PORT = 10808
-
-/**
- * Turns one selected share link into a full Xray-core JSON config, wired so:
- *  - all captured (tunneled) traffic goes out through the chosen server
- *    ("proxy" outbound) by default
- *  - if the package is domain-restricted (allowedDomains non-empty),
- *    everything NOT matching those domains is blocked instead of proxied
- *  - the backend's own apiHost ALWAYS resolves via a direct ("direct"
- *    outbound, not the proxy, not blocked) rule, so the app's own
- *    login/verify calls work even on a domain-locked plan
- */
 object XrayConfigBuilder {
 
     fun build(entry: ConfigEntry, pkg: PackageInfo, apiHost: String): String {
         val root = JsonObject()
         root.add("log", JsonObject().apply { addProperty("loglevel", "warning") })
 
-        // ── Inbound: local SOCKS that the tun2socks bridge forwards TUN packets into ──
         val inbound = JsonObject().apply {
-            addProperty("tag", "socks-in")
-            addProperty("listen", "127.0.0.1")
-            addProperty("port", LOCAL_SOCKS_PORT)
-            addProperty("protocol", "socks")
+            addProperty("tag", "tun-in")
+            addProperty("port", 0)
+            addProperty("protocol", "tun")
             add("settings", JsonObject().apply {
-                addProperty("udp", true)
-                addProperty("auth", "noauth")
-            })
-            add("sniffing", JsonObject().apply {
-                addProperty("enabled", true)
-                add("destOverride", JsonArray().apply { add("http"); add("tls") })
+                addProperty("name", "xray-tun")
+                addProperty("mtu", 1500)
             })
         }
         root.add("inbounds", JsonArray().apply { add(inbound) })
 
-        // ── Outbounds: proxy (the actual VPN server), direct (bypass), block ──
         val proxyOutbound = parseLinkToOutbound(entry)
         val directOutbound = JsonObject().apply { addProperty("protocol", "freedom"); addProperty("tag", "direct") }
         val blockOutbound = JsonObject().apply { addProperty("protocol", "blackhole"); addProperty("tag", "block") }
         root.add("outbounds", JsonArray().apply { add(proxyOutbound); add(directOutbound); add(blockOutbound) })
 
-        // ── Routing ──
         val rules = JsonArray()
 
-        // Backend API host: always direct, never blocked/restricted, so login/verify
-        // keep working no matter what the package's domain policy is.
         rules.add(JsonObject().apply {
             addProperty("type", "field")
             add("domain", JsonArray().apply { add("full:$apiHost") })
@@ -68,8 +45,6 @@ object XrayConfigBuilder {
                 add("domain", JsonArray().apply { pkg.allowedDomains.forEach { add(it) } })
                 addProperty("outboundTag", "proxy")
             })
-            // Default: anything not explicitly allowed is blocked outright for a
-            // domain-restricted plan (e.g. a "YouTube only" trial tier).
             rules.add(JsonObject().apply {
                 addProperty("type", "field")
                 add("network", JsonArray().apply { add("tcp"); add("udp") })
@@ -77,8 +52,6 @@ object XrayConfigBuilder {
                 addProperty("port", "0-65535")
             })
         }
-        // Unrestricted plans: no extra rule needed — Xray's default outbound
-        // (first one listed, "proxy") handles everything else already.
 
         root.add("routing", JsonObject().apply {
             addProperty("domainStrategy", "IPIfNonMatch")
